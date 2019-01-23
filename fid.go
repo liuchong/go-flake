@@ -4,9 +4,17 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
 	"sync"
 	"time"
+)
+
+const (
+	workerIDBits       = uint64(10)
+	maxWorkerID        = int64(-1) ^ (int64(-1) << workerIDBits)
+	sequenceBits       = uint64(13) // do not use standard 12 bits
+	workerIDShift      = sequenceBits
+	timestampLeftShift = sequenceBits + workerIDBits
+	sequenceMask       = int64(-1) ^ (int64(-1) << sequenceBits)
 )
 
 // FID is short for (a simple) flake ID.
@@ -15,56 +23,50 @@ type FID uint64
 // id format:
 // timestampBits(41) | workerBits(10) | sequenceBits(13)
 
-const (
-	workerIDBits = uint64(10)
-
-	maxWorkerID = int64(-1) ^ (int64(-1) << workerIDBits)
-
-	sequenceBits       = uint64(13)
-	workerIDShift      = sequenceBits
-	timestampLeftShift = sequenceBits + workerIDBits
-	sequenceMask       = int64(-1) ^ (int64(-1) << sequenceBits)
-
-	// 2009-02-13T23:31:31.011Z
-	twepoch = int64(1234567891011)
-)
-
-// Flags
-var (
-	workerID int64      // worker id  0 <= workerID <= maxWorkerID
-	lastTs   int64 = -1 // the last timestamp in milliseconds
-)
-
-var (
-	mu  sync.Mutex
-	seq int64
-)
-
-// Config (ure) this fid generator.
-func Config(id int64) {
-	workerID = id
-	if workerID < 0 || workerID > maxWorkerID {
-		log.Fatalf("worker id must be between 0 and %d", maxWorkerID)
-	}
+// Generator generates new FID
+type Gen struct {
+	sync.Mutex
+	seq      int64
+	ts       int64 // the last timestamp in milliseconds
+	fepoch   int64
+	workerID int64 // worker id  0 <= workerID <= maxWorkerID
 }
 
-func getTsInfo() (milliseconds, remain int64) {
-	nano := time.Now().UnixNano()
+func NewGen(workerID, fepoch int64) (*Gen, error) {
+	if workerID < 0 || workerID > maxWorkerID {
+		return nil, fmt.Errorf("worker id must be between 0 and %d", maxWorkerID)
+	}
 
-	return nano / 1e6, 1e6 - nano%1e6
+	now, _ := getTsInfo()
+	if now < fepoch {
+		return nil, fmt.Errorf("fepoch %d is moving backwards", fepoch)
+	}
+
+	if fepoch <= 0 {
+		// set default epoch 1234567891011
+		// 2009-02-13T23:31:31.011Z
+		fepoch = int64(1234567891011)
+	}
+
+	return &Gen{
+		seq:      -1,
+		ts:       -1,
+		fepoch:   fepoch,
+		workerID: workerID,
+	}, nil
 }
 
 // NextID returns the next unique id.
-func NextID() (FID, error) {
-	mu.Lock()
-	defer mu.Unlock()
+func (g *Gen) NextID() FID {
+	g.Lock()
+	defer g.Unlock()
 
-	// ts := milliseconds()
 	ts, rem := getTsInfo()
+	lastTs := g.ts
+	seq := g.seq
 
 	switch {
-	case ts < lastTs:
-		return 0, fmt.Errorf("time is moving backwards, waiting until %d", lastTs)
+	// ts is never less than lastTs
 	case ts == lastTs:
 		seq = (seq + 1) & sequenceMask
 		if seq == 0 {
@@ -77,29 +79,25 @@ func NextID() (FID, error) {
 		seq = 0
 	}
 
-	lastTs = ts
+	g.ts = ts
+	g.seq = seq
 
 	return FID(
-
 		(0 |
 			// timestamp
-			(ts-twepoch)<<timestampLeftShift) |
+			(ts-g.fepoch)<<timestampLeftShift) |
 			// workid
-			(workerID << workerIDShift) |
+			(g.workerID << workerIDShift) |
 			// sequence
 			seq,
-	), nil
+	)
 }
 
 // GenMulti returns next n ids where n is given by parameter.
-func GenMulti(n uint) ([]byte, error) {
+func (g *Gen) GenMulti(n uint) []byte {
 	b := make([]byte, n*8)
 	for i := uint(0); i < n; i++ {
-		id, err := NextID()
-		if err != nil {
-			return nil, err
-		}
-
+		id := g.NextID()
 		off := i * 8
 		b[off+0] = byte(id >> 56)
 		b[off+1] = byte(id >> 48)
@@ -110,7 +108,7 @@ func GenMulti(n uint) ([]byte, error) {
 		b[off+6] = byte(id >> 8)
 		b[off+7] = byte(id)
 	}
-	return b, nil
+	return b
 }
 
 // ToBytes convert id to byte array.
@@ -171,4 +169,10 @@ func (id *FID) UnmarshalJSON(data []byte) error {
 	}
 
 	return id.FromString(s)
+}
+
+func getTsInfo() (milliseconds, remain int64) {
+	nano := time.Now().UnixNano()
+
+	return nano / 1e6, 1e6 - nano%1e6
 }
