@@ -1,4 +1,4 @@
-package fid
+package flake
 
 import (
 	"encoding/base64"
@@ -17,13 +17,13 @@ const (
 	sequenceMask       = int64(-1) ^ (int64(-1) << sequenceBits)
 )
 
-// FID is short for (a simple) flake ID.
-type FID uint64
+// FlakeID is short for (a simple) flake ID.
+type FlakeID uint64
 
 // id format:
 // timestampBits(41) | workerBits(10) | sequenceBits(13)
 
-// Generator generates new FID
+// Generator generates new FlakeID
 type Gen struct {
 	sync.Mutex
 	seq      int64
@@ -34,7 +34,8 @@ type Gen struct {
 
 func NewGen(workerID, fepoch int64) (*Gen, error) {
 	if workerID < 0 || workerID > maxWorkerID {
-		return nil, fmt.Errorf("worker id must be between 0 and %d", maxWorkerID)
+		return nil, fmt.Errorf("worker id must be between 0 and %d, actual got %d",
+			maxWorkerID, workerID)
 	}
 
 	now, _ := getTsInfo()
@@ -57,7 +58,7 @@ func NewGen(workerID, fepoch int64) (*Gen, error) {
 }
 
 // NextID returns the next unique id.
-func (g *Gen) NextID() FID {
+func (g *Gen) NextID() FlakeID {
 	g.Lock()
 	defer g.Unlock()
 
@@ -82,7 +83,7 @@ func (g *Gen) NextID() FID {
 	g.ts = ts
 	g.seq = seq
 
-	return FID(
+	return FlakeID(
 		(0 |
 			// timestamp
 			(ts-g.fepoch)<<timestampLeftShift) |
@@ -112,7 +113,7 @@ func (g *Gen) GenMulti(n uint) []byte {
 }
 
 // ToBytes convert id to byte array.
-func (id *FID) ToBytes() []byte {
+func (id *FlakeID) ToBytes() []byte {
 	b := make([]byte, 8)
 
 	b[0] = byte(*id >> 56)
@@ -127,20 +128,20 @@ func (id *FID) ToBytes() []byte {
 	return b
 }
 
-// ToString encode FID to URL-compatible base64 string.
-func (id FID) ToString() string {
+// ToString encode FlakeID to URL-compatible base64 string.
+func (id FlakeID) ToString() string {
 	bs := id.ToBytes()
 	return base64.URLEncoding.EncodeToString(bs)
 }
 
-// FromString decode URL-compatible base64 string to FID.
-func (id *FID) FromString(s string) error {
+// FromString decode URL-compatible base64 string to FlakeID.
+func (id *FlakeID) FromString(s string) error {
 	bs, err := base64.URLEncoding.DecodeString(s)
 	if err != nil {
 		return err
 	}
 
-	*id = FID(
+	*id = FlakeID(
 		(int64(bs[0]) << 56) |
 			(int64(bs[1]) << 48) |
 			(int64(bs[2]) << 40) |
@@ -155,12 +156,12 @@ func (id *FID) FromString(s string) error {
 }
 
 // MarshalJSON automatically convert id to string for JSON.
-func (id FID) MarshalJSON() ([]byte, error) {
+func (id FlakeID) MarshalJSON() ([]byte, error) {
 	return json.Marshal(id.ToString())
 }
 
-// UnmarshalJSON convert JSON string to FID.
-func (id *FID) UnmarshalJSON(data []byte) error {
+// UnmarshalJSON convert JSON string to FlakeID.
+func (id *FlakeID) UnmarshalJSON(data []byte) error {
 	var s string
 	err := json.Unmarshal(data, &s)
 

@@ -1,2 +1,2 @@
-# fid
-A very simple flake id generator in go
+# go-flake
+A very simple flake id generator in go.
