@@ -24,7 +24,7 @@ type FlakeID uint64
 // timestampBits(41) | workerBits(10) | sequenceBits(13)
 
 // Generator generates new FlakeID
-type Gen struct {
+type Generator struct {
 	sync.Mutex
 	seq      int64
 	ts       int64 // the last timestamp in milliseconds
@@ -32,7 +32,7 @@ type Gen struct {
 	workerID int64 // worker id  0 <= workerID <= maxWorkerID
 }
 
-func NewGen(workerID, fepoch int64) (*Gen, error) {
+func NewGenerator(workerID, fepoch int64) (*Generator, error) {
 	if workerID < 0 || workerID > maxWorkerID {
 		return nil, fmt.Errorf("worker id must be between 0 and %d, actual got %d",
 			maxWorkerID, workerID)
@@ -49,7 +49,7 @@ func NewGen(workerID, fepoch int64) (*Gen, error) {
 		fepoch = int64(1234567891011)
 	}
 
-	return &Gen{
+	return &Generator{
 		seq:      -1,
 		ts:       -1,
 		fepoch:   fepoch,
@@ -58,7 +58,7 @@ func NewGen(workerID, fepoch int64) (*Gen, error) {
 }
 
 // NextID returns the next unique id.
-func (g *Gen) NextID() FlakeID {
+func (g *Generator) NextID() FlakeID {
 	g.Lock()
 	defer g.Unlock()
 
@@ -95,7 +95,7 @@ func (g *Gen) NextID() FlakeID {
 }
 
 // GenMulti returns next n ids where n is given by parameter.
-func (g *Gen) GenMulti(n uint) []byte {
+func (g *Generator) GenMulti(n uint) []byte {
 	b := make([]byte, n*8)
 	for i := uint(0); i < n; i++ {
 		id := g.NextID()

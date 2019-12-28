@@ -5,7 +5,7 @@ import (
 )
 
 func TestFlakeGen(t *testing.T) {
-	g, err := NewGen(123, 0)
+	g, err := NewGenerator(123, 0)
 	if err != nil {
 		t.Errorf("Test flake ID generator failed. Err: %s", err)
 	}
